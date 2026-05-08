@@ -12,6 +12,8 @@ import pandas as pd
 from data_loader import movies_df
 from cbf_model  import find_similar_movies
 from hybrid     import hybrid_recommend, cold_start_recommend
+# FIXED: Issue #8 — restore evaluate import for Model Stats page
+from evaluate   import get_evaluation_report
 
 # ── PAGE CONFIG ──────────────────────────────────────────────
 st.set_page_config(
@@ -113,7 +115,7 @@ div.stButton > button:hover {
 .stTextInput input {
     font-family:'VT323',monospace !important; font-size:16px !important;
     border:2px solid #1a1a2e !important; border-radius:0 !important;
-    background:#fdf6ec !important;
+    background:#fdf6ec !important; color:#000000 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -135,7 +137,7 @@ def poster_html(idx, height=110):
     bg = POSTER_COLORS[idx % len(POSTER_COLORS)]
     return f"""<div class="movie-poster" style="background:{bg};height:{height}px">
         <span style="font-size:26px">🎬</span>
-        <span>ADD IMAGE HERE</span></div>"""
+        </div>"""
 
 def win_bar(title, color="#c0c8f0"):
     return f"""<div class="win-bar" style="background:{color}">
@@ -178,7 +180,8 @@ def get_random_movie():
 
 def movie_card_html(m, idx):
     title  = m.get("title", "Unknown")
-    year   = m.get("year", "N/A")
+    # FIXED: Bug #5 — cast year to int to avoid displaying 2010.0
+    year   = int(m.get("year", 0)) if m.get("year") else "N/A"
     source = m.get("source", "")
     genres = m.get("genres", "")
     rating = m.get("vote_average", m.get("popularity", m.get("final_score", "—")))
@@ -187,7 +190,7 @@ def movie_card_html(m, idx):
     <div class="movie-card">
         <div class="movie-poster" style="background:{bg};height:110px">
             <span style="font-size:26px">🎬</span>
-            <span>ADD IMAGE HERE</span>
+            <span style="text-align:center; padding:0 10px; color:#333; font-size:16px;">{title}</span>
         </div>
         <div class="movie-body">
             <div class="movie-title">{title}</div>
@@ -197,16 +200,44 @@ def movie_card_html(m, idx):
     </div>"""
 
 
+# FIXED: Issue #8 — cached evaluation report loader for Model Stats page
+@st.cache_data
+def load_eval_report():
+    return get_evaluation_report()
+
+
 # ── SESSION STATE ─────────────────────────────────────────────
 for key, val in {
     "watchlist": [], "page": "Home",
     "swipe_queue": [], "swipe_idx": 0,
     "selected_genres": [], "random_movie": None,
     "search_results": None, "hybrid_results": None,
+    "dark_mode": False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
+
+# ── DARK MODE CSS ─────────────────────────────────────────────
+if st.session_state.dark_mode:
+    st.markdown("""
+    <style>
+    html, body, [class*="css"], .stApp { background-color: #1a1a2e !important; color: #e8d8f0 !important; }
+    .win-card, .movie-card, .swipe-card, .sec-card { background: #2a2a4e !important; border-color: #e8d8f0 !important; box-shadow: 4px 4px 0 #e8d8f0 !important; color: #e8d8f0 !important; }
+    .win-card { box-shadow: 5px 5px 0 #e8d8f0 !important; }
+    .swipe-card { box-shadow: 6px 6px 0 #e8d8f0 !important; }
+    .top-bar { border-color: #e8d8f0 !important; box-shadow: 5px 5px 0 #e8d8f0 !important; }
+    .win-bar, .url-row, .hearts-row { border-color: #e8d8f0 !important; background: #3a3a6e !important; color: #e8d8f0 !important; }
+    .url-box { background: #1a1a2e !important; border-color: #e8d8f0 !important; color: #e8d8f0 !important; }
+    .movie-poster, .swipe-poster { border-color: #e8d8f0 !important; background: #3a3a6e !important; }
+    .movie-poster span, .swipe-poster span { color: #e8d8f0 !important; }
+    .movie-meta, .swipe-meta, .movie-review, .sec-label, .sec-sub { color: #ccc !important; }
+    div.stButton > button { background: #2a2a4e !important; color: #e8d8f0 !important; border-color: #e8d8f0 !important; box-shadow: 4px 4px 0 #e8d8f0 !important; }
+    div.stButton > button:hover { background: #e8d8f0 !important; color: #1a1a2e !important; }
+    .stTextInput input { background: #2a2a4e !important; color: #e8d8f0 !important; border-color: #e8d8f0 !important; }
+    .stTabs [aria-selected="true"] { background:#e8d8f0 !important; color:#1a1a2e !important; }
+    </style>
+    """, unsafe_allow_html=True)
 
 # ── TOP BAR ───────────────────────────────────────────────────
 st.markdown("""
@@ -219,14 +250,31 @@ st.markdown("""
     </div>
     <div class="url-row">
         <span>↺</span>
-        <div class="url-box">https://www.movie-recommender.com</div>
-        <span style="background:#b8e8d8;border:2px solid #1a1a2e;padding:2px 6px">✉</span>
+        <div class="url-box" style="color:#000000;">https://www.movie-recommender.com</div>
+        <span style="background:#b8e8d8;border:2px solid #1a1a2e;padding:2px 6px;color:#1a1a2e">✉</span>
     </div>
     <div class="hearts-row">♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥ ♥</div>
-</div>""", unsafe_allow_html=True)
+</div>
+<style>
+div[data-testid="stToggle"] {
+    position: absolute;
+    right: 215px;
+    margin-top: -105px;
+    z-index: 1000;
+}
+div[data-testid="stToggle"] p {
+    font-family: 'VT323', monospace !important;
+    font-size: 16px !important;
+    letter-spacing: 2px !important;
+    color: #000000 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+st.toggle("DARK MODE", key="dark_mode")
 
 # ── NAV ───────────────────────────────────────────────────────
-pages = ["Home","Discover","Browse","Search","My List"]
+# FIXED: Issue #8 — added Model Stats page to navigation
+pages = ["Home","Discover","Browse","Search","My List","Model Stats"]
 cols  = st.columns(len(pages))
 for col, pg in zip(cols, pages):
     with col:
@@ -242,28 +290,18 @@ st.markdown("---")
 # HOME
 # ════════════════════════════════════════════════════════════
 if st.session_state.page == "Home":
+    # FIXED: Issue #7 — removed decorative HTML search bar that confused users
     st.markdown(f"""<div class="win-card">
         {win_bar("HOME.exe","#f5c8d4")}
-        <div style="padding:10px 14px;border-bottom:2px solid #1a1a2e;background:#fdf6ec">
-            <div style="font-family:'VT323',monospace;font-size:13px;color:#666;
-                        letter-spacing:1px;margin-bottom:6px">&gt; SEARCH MOVIES</div>
-            <div style="display:flex;gap:8px;align-items:center">
-                <div style="flex:1;border:2px solid #1a1a2e;background:white;
-                            padding:5px 10px;font-family:'VT323',monospace;font-size:15px;
-                            color:#aaa">search a title, genre or language...</div>
-                <div style="background:#1a1a2e;color:#fdf6ec;padding:6px 14px;
-                            font-family:'VT323',monospace;font-size:15px;
-                            border:2px solid #1a1a2e;cursor:pointer">SEARCH</div>
-            </div>
-        </div>
         <div style="padding:12px 16px;font-family:'VT323',monospace;font-size:24px;
-                    border-bottom:2px solid #1a1a2e">
+                    border-bottom:2px solid #1a1a2e; color:#000000;">
             what are we watching tonight? ✦
         </div></div>""", unsafe_allow_html=True)
 
     # Functional search bar
     home_query = st.text_input("", placeholder="search a title, genre or language...",
                                label_visibility="collapsed", key="home_search")
+    st.markdown("<div style='color:#000000; font-size:14px;'>↑ Type here to search</div>", unsafe_allow_html=True)
     if home_query.strip():
         if st.button("🔍 SEARCH", use_container_width=True, key="home_search_btn"):
             st.session_state.page = "Search"
@@ -315,11 +353,11 @@ if st.session_state.page == "Home":
             {win_bar("RANDOM PICK.exe","#f8e8a0")}
             <div class="movie-poster" style="background:{bg};height:130px">
                 <span style="font-size:30px">🎬</span>
-                <span>ADD IMAGE HERE</span>
+                <span style="text-align:center; padding:0 10px; color:#333; font-size:18px;">{m.get('title','')}</span>
             </div>
             <div class="movie-body">
                 <div class="movie-title">{m.get('title','')}</div>
-                <div class="movie-meta">{m.get('year','N/A')} · {m.get('source','')} · {str(m.get('genres',''))[:50]}</div>
+                <div class="movie-meta">{int(m.get('year', 0)) if m.get('year') else 'N/A'} · {m.get('source','')} · {str(m.get('genres',''))[:50]}</div>
                 <div class="movie-stars">{stars(m.get('vote_average',0))} {m.get('vote_average','—')}/10</div>
             </div></div>""", unsafe_allow_html=True)
         ca, cb = st.columns(2)
@@ -341,7 +379,7 @@ elif st.session_state.page == "Discover":
             &gt; pick genres → generate → swipe through real movies
         </div></div>""", unsafe_allow_html=True)
 
-    GENRES = ["Action","Comedy","Drama","Horror","Romance","Thriller",
+    GENRES = ["Action","Comedy","Drama","K-Drama","Horror","Romance","Thriller",
               "Sci-Fi","Animation","Crime","Mystery","Fantasy","Musical"]
 
     st.markdown("<div style='font-family:VT323,monospace;font-size:18px;margin-bottom:8px'>SELECT GENRES:</div>",
@@ -359,11 +397,14 @@ elif st.session_state.page == "Discover":
         sel = st.session_state.selected_genres
         if sel:
             # Use real backend: cold_start_recommend per genre
+            # FIXED: Bug #1 — show warning when cold_start_recommend returns error
             pool = []
             for g in sel:
                 res = cold_start_recommend(g, n=4)
                 if isinstance(res, list):
                     pool.extend(res)
+                elif isinstance(res, dict) and "error" in res:
+                    st.warning(f"No movies found for genre '{g}' — try a different one.")
         else:
             pool = get_hot_movies(8)
         random.shuffle(pool)
@@ -378,7 +419,8 @@ elif st.session_state.page == "Discover":
             m  = queue[idx]
             bg = POSTER_COLORS[idx % len(POSTER_COLORS)]
             title   = m.get("title","Unknown")
-            year    = m.get("year","N/A")
+            # FIXED: Bug #5 — cast year to int to avoid displaying 2010.0
+            year    = int(m.get("year", 0)) if m.get("year") else "N/A"
             source  = m.get("source","")
             genres  = m.get("genres","")
             rating  = m.get("popularity", m.get("vote_average","—"))
@@ -386,7 +428,7 @@ elif st.session_state.page == "Discover":
                 {win_bar(f"CARD {idx+1} OF {len(queue)}","#c0c8f0")}
                 <div class="swipe-poster" style="background:{bg}">
                     <span style="font-size:34px">🎬</span>
-                    <span style="font-family:'VT323',monospace;font-size:12px;color:#666">ADD IMAGE HERE</span>
+                    <span style="font-family:'VT323',monospace;font-size:18px;color:#333;text-align:center;padding:0 10px;">{title}</span>
                 </div>
                 <div style="background:#d8c8f0;border-bottom:2px solid #1a1a2e;
                             padding:4px 12px;display:flex;justify-content:space-between;
@@ -495,10 +537,18 @@ elif st.session_state.page == "Search":
         r = st.session_state.search_results
         if "error" in r:
             st.error(r["error"])
+        # FIXED: Bug #2 — let user select from multiple matches instead of dead-end list
         elif "multiple_matches" in r:
-            st.warning(r["message"])
-            for opt in r["multiple_matches"]:
-                st.write(f"  • {opt}")
+            st.warning(r.get("message", "Multiple movies found. Please pick one:"))
+            selected = st.selectbox(
+                "Select the movie you meant:",
+                options=r["multiple_matches"],
+                key="match_selector"
+            )
+            if st.button("Search this movie", key="match_search_btn"):
+                r = find_similar_movies(selected, n=6)
+                st.session_state["search_results"] = r
+                st.rerun()
         else:
             st.markdown(f"""<div class="win-card">
                 {win_bar(f"SIMILAR TO: {r['searched_for']}","#f5c8d4")}
@@ -510,11 +560,11 @@ elif st.session_state.page == "Search":
                     st.markdown(f"""<div class="movie-card">
                         <div class="movie-poster" style="background:{bg};height:100px">
                             <span style="font-size:24px">🎬</span>
-                            <span>ADD IMAGE HERE</span>
+                            <span style="text-align:center; padding:0 10px; color:#333; font-size:14px;">{m['title']}</span>
                         </div>
                         <div class="movie-body">
                             <div class="movie-title">{m['title']}</div>
-                            <div class="movie-meta">{m['year']} · {m['source']} · {m['genres'][:35]}</div>
+                            <div class="movie-meta">{int(m.get('year', 0))} · {m['source']} · {str(m.get('genres', ''))[:35]}</div>
                             <div class="movie-stars">Similarity: {m['similarity']}</div>
                         </div></div>""", unsafe_allow_html=True)
                     if st.button("+ MY LIST", key=f"sr_{i}", use_container_width=True):
@@ -536,11 +586,11 @@ elif st.session_state.page == "Search":
                     st.markdown(f"""<div class="movie-card">
                         <div class="movie-poster" style="background:{bg};height:100px">
                             <span style="font-size:24px">🎬</span>
-                            <span>ADD IMAGE HERE</span>
+                            <span style="text-align:center; padding:0 10px; color:#333; font-size:14px;">{m['title']}</span>
                         </div>
                         <div class="movie-body">
                             <div class="movie-title">{m['title']}</div>
-                            <div class="movie-meta">{m['year']} · {m['source']} · {m['genres'][:35]}</div>
+                            <div class="movie-meta">{int(m.get('year', 0))} · {m['source']} · {str(m.get('genres', ''))[:35]}</div>
                             <div class="movie-stars">
                                 Score: {m['final_score']} &nbsp;|&nbsp;
                                 CF: {m['cf_score']} &nbsp;|&nbsp; CBF: {m['cbf_score']}
@@ -574,15 +624,45 @@ elif st.session_state.page == "My List":
                                 border:2px solid #1a1a2e;display:flex;align-items:center;
                                 justify-content:center;font-size:9px;
                                 font-family:'VT323',monospace;text-align:center;color:#666">
-                        ADD<br>IMG</div>
+                        🎬</div>
                     <div>
                         <div style="font-family:'VT323',monospace;font-size:18px">{m.get('title','')}</div>
-                        <div style="font-size:10px;color:#666">{m.get('year','N/A')} · {m.get('source','')} · {str(m.get('genres',''))[:40]}</div>
+                        <div style="font-size:10px;color:#666">{int(m.get('year', 0)) if m.get('year') else 'N/A'} · {m.get('source','')} · {str(m.get('genres',''))[:40]}</div>
                     </div>
                 </div>""", unsafe_allow_html=True)
             with c2:
                 if st.button("✕", key=f"rm_{i}", use_container_width=True):
                     st.session_state.watchlist.pop(i); st.rerun()
+
+
+# ════════════════════════════════════════════════════════════
+# MODEL STATS — FIXED: Issue #8 — restored evaluation metrics page
+# ════════════════════════════════════════════════════════════
+elif st.session_state.page == "Model Stats":
+    st.markdown(f"""<div class="win-card">
+        {win_bar("MODEL STATS.exe","#d8c8f0")}</div>""", unsafe_allow_html=True)
+
+    report = load_eval_report()
+    st.subheader("Model Performance")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("SVD RMSE", round(report.get("svd_rmse", 0), 4))
+    col2.metric("SVD MAE", round(report.get("svd_mae", 0), 4))
+    col3.metric("Precision@5", round(report.get("precision_at_5", 0), 4))
+    col4.metric("Recall@5", round(report.get("recall_at_5", 0), 4))
+
+    st.markdown("---")
+    st.caption("RMSE: how far off predicted ratings are on average (lower is better)")
+    st.caption("MAE: average error in predicted ratings (lower is better)")
+    st.caption("Precision@5: of 5 recommendations, how many were relevant")
+    st.caption("Recall@5: of all relevant movies, how many we recommended")
+
+    # SVD vs KNN comparison table
+    comparison = pd.DataFrame({
+        "Model": ["SVD", "KNN"],
+        "RMSE": [report.get("svd_rmse", "-"), report.get("knn_rmse", "-")],
+        "MAE":  [report.get("svd_mae",  "-"), report.get("knn_mae",  "-")],
+    })
+    st.dataframe(comparison, use_container_width=True)
 
 
 # ── FOOTER ───────────────────────────────────────────────────
